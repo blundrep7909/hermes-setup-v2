@@ -1,0 +1,12 @@
+services:
+  hermes-aionui:
+    image: ghcr.io/blundrep7909/hermes-setup-v2:latest
+    container_name: hermes-aionui
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      - hermes-data:/opt/data
+
+volumes:
+  hermes-data:
