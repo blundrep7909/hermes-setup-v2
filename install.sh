@@ -7,6 +7,9 @@ set -euo pipefail
 #   curl -fsSL ... | bash -s -- --update
 #   curl -fsSL ... | bash -s -- --uninstall
 #   curl -fsSL ... | bash -s -- --backup
+#   curl -fsSL ... | bash -s -- --plugins=core    (evey plugins)
+#   curl -fsSL ... | bash -s -- --skills=dev,ops  (Terp skills)
+#   curl -fsSL ... | bash -s -- --config=cost-optimized
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
@@ -23,11 +26,23 @@ COMPOSE_FILE="docker-compose.yml"
 DO_UNINSTALL=false
 DO_UPDATE=false
 DO_BACKUP=false
+DO_PLUGINS=false
+DO_SKILLS=false
+DO_CONFIG=false
+PLUGIN_CATEGORIES=""
+SKILL_CATEGORIES=""
+CONFIG_PROFILE=""
 
 for arg in "$@"; do
   case "$arg" in
     --uninstall|-y|--yes) DO_UNINSTALL=true ;;
     --update|-u)          DO_UPDATE=true ;;
+    --plugins=*)          DO_PLUGINS=true; PLUGIN_CATEGORIES="${arg#*=}" ;;
+    --plugins|-p)         DO_PLUGINS=true; PLUGIN_CATEGORIES="core" ;;
+    --skills=*)           DO_SKILLS=true; SKILL_CATEGORIES="${arg#*=}" ;;
+    --skills|-s)          DO_SKILLS=true; SKILL_CATEGORIES="dev,ops" ;;
+    --config=*)           DO_CONFIG=true; CONFIG_PROFILE="${arg#*=}" ;;
+    --config|-c)          DO_CONFIG=true; CONFIG_PROFILE="cost-optimized" ;;
     --backup|-b)          DO_BACKUP=true ;;
   esac
 done
@@ -104,6 +119,50 @@ if $DO_BACKUP; then
       error "No data volume found. Nothing to back up."
       exit 1
     fi
+  fi
+  exit 0
+fi
+
+# ─── Plugins (standalone) ─────────────────────────────────────────
+if $DO_PLUGINS; then
+  echo ""
+  echo -e "${BOLD}━━━ Installing Plugins ───────────────────────────────────${NC}"
+  echo ""
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "$PWD")"
+  if [ -f "$SCRIPT_DIR/scripts/install-plugins.sh" ]; then
+    bash "$SCRIPT_DIR/scripts/install-plugins.sh" "--${PLUGIN_CATEGORIES}"
+    info "Restarting container to load plugins..."
+    docker compose restart "$CONTAINER" 2>/dev/null || docker restart "$CONTAINER"
+  else
+    warn "install-plugins.sh not found. Run from the repo directory."
+  fi
+  exit 0
+fi
+
+# ─── Skills (standalone) ──────────────────────────────────────────
+if $DO_SKILLS; then
+  echo ""
+  echo -e "${BOLD}━━━ Installing Terp Skills ─────────────────────────────────${NC}"
+  echo ""
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "$PWD")"
+  if [ -f "$SCRIPT_DIR/scripts/install-skills.sh" ]; then
+    bash "$SCRIPT_DIR/scripts/install-skills.sh" "--${SKILL_CATEGORIES}"
+  else
+    warn "install-skills.sh not found."
+  fi
+  exit 0
+fi
+
+# ─── Config (standalone) ──────────────────────────────────────────
+if $DO_CONFIG; then
+  echo ""
+  echo -e "${BOLD}━━━ Applying ${CONFIG_PROFILE} Config ────────────────────────${NC}"
+  echo ""
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "$PWD")"
+  if [ -f "$SCRIPT_DIR/scripts/apply-config.sh" ]; then
+    bash "$SCRIPT_DIR/scripts/apply-config.sh" "--${CONFIG_PROFILE}"
+  else
+    warn "apply-config.sh not found."
   fi
   exit 0
 fi
@@ -195,7 +254,21 @@ if [ -z "$ADMIN_PASS" ]; then
   echo "  docker exec $CONTAINER /opt/aionui/aionui-web resetpass --data-dir /opt/data"
 fi
 
-# 10. Done
+# 10. Install plugins (if requested)
+if $DO_PLUGINS; then
+  echo ""
+  info "Installing plugins (${PLUGIN_CATEGORIES})..."
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  if [ -f "$SCRIPT_DIR/scripts/install-plugins.sh" ]; then
+    bash "$SCRIPT_DIR/scripts/install-plugins.sh" "--${PLUGIN_CATEGORIES}" || warn "Plugin install had issues"
+    info "Restarting container to load plugins..."
+    docker compose restart "$CONTAINER"
+  else
+    warn "install-plugins.sh not found, skipping plugins"
+  fi
+fi
+
+# 11. Done
 echo ""
 echo -e "${GREEN}━━━ Install Complete ━━━${NC}"
 echo ""
@@ -207,6 +280,11 @@ echo "  After login, select 'Hermes' agent in the UI."
 echo ""
 echo -e "${YELLOW}Commands:${NC}"
 echo "  Update:       bash install.sh --update"
+echo "  Plugins:      bash install.sh --plugins           (evey core plugins)"
+echo "  Plugins:      bash install.sh --plugins=all       (all evey plugins)"
+echo "  Skills:       bash install.sh --skills            (Terp dev+ops skills)"
+echo "  Skills:       bash install.sh --skills=all        (all Terp skills)"
+echo "  Config:       bash install.sh --config=cost-optimized"
 echo "  Backup:       bash install.sh --backup"
 echo "  Uninstall:    bash install.sh --uninstall"
 echo ""
